@@ -1,32 +1,44 @@
 
 const jwt = require("jsonwebtoken");
-const db = require("../config/database");
+const db = require("../config/postgres");
 
 // Verify the user's authentication token
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
+  // Check whether an authorization header exists
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required."
+    });
+  }
+
+  // Extract the token
+  const token = authHeader.split(" ")[1];
+
+  let decoded;
+
+  // Verify the token
   try {
-    const authHeader = req.headers.authorization;
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired authentication token."
+    });
+  }
 
-    // Check whether an authorization header exists
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication required."
-      });
-    }
-
-    // Extract the token
-    const token = authHeader.split(" ")[1];
-
-    // Verify the token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
+  try {
     // Retrieve the user's current account status
-    const user = db.prepare(`
-      SELECT id, role, is_active
-      FROM users
-      WHERE id = ?
-    `).get(decoded.id);
+    const result = await db.query(
+      `SELECT id, role, is_active
+       FROM users
+       WHERE id = $1`,
+      [decoded.id]
+    );
+
+    const user = result.rows[0];
 
     // Check whether the account still exists
     if (!user) {
@@ -54,9 +66,11 @@ function authenticateToken(req, res, next) {
     next();
 
   } catch (error) {
-    return res.status(401).json({
+    console.error("Authentication database error:", error);
+
+    return res.status(500).json({
       success: false,
-      message: "Invalid or expired authentication token."
+      message: "Unable to verify your account."
     });
   }
 }

@@ -1,4 +1,4 @@
-
+import AdminSidebar from "../components/AdminSidebar";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -159,49 +159,29 @@ async function handleStatusUpdate() {
       </div>
     );
   }
+const formatDate = (date) => {
+  if (!date) return "Not available";
 
-  const formatDate = (date) => {
-    if (!date) return "Not available";
+  const parsedDate = new Date(date);
 
-    return new Date(date.replace(" ", "T") + "Z").toLocaleString();
-  };
+  if (Number.isNaN(parsedDate.getTime())) {
+    console.error("Invalid date received:", date);
+    return "Date unavailable";
+  }
+
+  return parsedDate.toLocaleString("en-JM", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 
   return (
     <div className="admin-layout">
-      <aside className="admin-sidebar">
-        <div className="admin-brand">
-          <div className="admin-brand-icon">F</div>
-          <div>
-            <h2>FixIt Jamaica</h2>
-            <span>ADMINISTRATION</span>
-          </div>
-        </div>
-
-        <p className="admin-nav-label">WORKSPACE</p>
-
-        <nav className="admin-navigation">
-          <Link to="/admin" className="admin-nav-item">
-            <LayoutDashboard size={19} />
-            Dashboard
-          </Link>
-
-          <Link to="/admin/reports" className="admin-nav-item active">
-            <ClipboardList size={19} />
-            Manage Reports
-          </Link>
-        </nav>
-
-        <div className="admin-sidebar-bottom">
-          <div className="admin-profile">
-            <div className="admin-avatar">A</div>
-            <div>
-              <strong>Administrator</strong>
-              <span>System Admin</span>
-            </div>
-          </div>
-        </div>
-      </aside>
-
+      <AdminSidebar />
       <main className="admin-main">
         <header className="admin-detail-header">
           <div>
@@ -259,12 +239,12 @@ async function handleStatusUpdate() {
                   {report.photos.map((photo) => (
                     <a
                       key={photo.id}
-                      href={`http://localhost:5000${photo.file_path}`}
+                     href={photo.file_path}
                       target="_blank"
                       rel="noreferrer"
                     >
                       <img
-                        src={`http://localhost:5000${photo.file_path}`}
+                        src={photo.file_path}
                         alt={photo.original_name}
                       />
                       <span>{photo.original_name}</span>

@@ -2,7 +2,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const db = require("../config/database");
+const db = require("../config/postgres");
 const authenticateToken = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -39,12 +39,16 @@ router.post("/register", async (req, res) => {
     }
 
     // 4. Check whether student ID or email already exists
-    const existingUser = db.prepare(`
-      SELECT id FROM users
-      WHERE student_id = ? OR email = ?
-    `).get(student_id.trim(), email.trim().toLowerCase());
+    const existingUser = await db.query(
+      `SELECT id FROM users
+       WHERE student_id = $1 OR email = $2`,
+      [
+        student_id.trim(),
+        email.trim().toLowerCase()
+      ]
+    );
 
-    if (existingUser) {
+    if (existingUser.rows.length > 0) {
       return res.status(409).json({
         success: false,
         message: "Student ID or email is already registered."
@@ -55,26 +59,30 @@ router.post("/register", async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
 
     // 6. Save the student in the database
-    const result = db.prepare(`
-      INSERT INTO users (
+    const result = await db.query(
+      `INSERT INTO users (
         student_id,
         full_name,
         email,
         password_hash,
         role
       )
-      VALUES (?, ?, ?, ?, 'student')
-    `).run(
-      student_id.trim(),
-      full_name.trim(),
-      email.trim().toLowerCase(),
-      passwordHash
+      VALUES ($1, $2, $3, $4, 'student')
+      RETURNING id`,
+      [
+        student_id.trim(),
+        full_name.trim(),
+        email.trim().toLowerCase(),
+        passwordHash
+      ]
     );
+
+    const userId = result.rows[0].id;
 
     // 7. Create authentication token
     const token = jwt.sign(
       {
-        id: Number(result.lastInsertRowid),
+        id: userId,
         role: "student"
       },
       process.env.JWT_SECRET,
@@ -87,7 +95,7 @@ router.post("/register", async (req, res) => {
       message: "Student account created successfully.",
       token,
       user: {
-        id: Number(result.lastInsertRowid),
+        id: userId,
         student_id: student_id.trim(),
         full_name: full_name.trim(),
         email: email.trim().toLowerCase(),
@@ -97,6 +105,14 @@ router.post("/register", async (req, res) => {
 
   } catch (error) {
     console.error("Registration error:", error);
+
+    // Handle duplicate student IDs or emails
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "Student ID or email is already registered."
+      });
+    }
 
     res.status(500).json({
       success: false,
@@ -119,13 +135,16 @@ router.post("/login", async (req, res) => {
     }
 
     // 2. Find user using student ID or email
-    const user = db.prepare(`
-      SELECT * FROM users
-      WHERE student_id = ? OR email = ?
-    `).get(
-      identifier.trim(),
-      identifier.trim().toLowerCase()
+    const result = await db.query(
+      `SELECT * FROM users
+       WHERE student_id = $1 OR email = $2`,
+      [
+        identifier.trim(),
+        identifier.trim().toLowerCase()
+      ]
     );
+
+    const user = result.rows[0];
 
     if (!user) {
       return res.status(401).json({
@@ -190,13 +209,16 @@ router.post("/login", async (req, res) => {
 });
 
 // GET CURRENT AUTHENTICATED USER
-router.get("/me", authenticateToken, (req, res) => {
+router.get("/me", authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare(`
-      SELECT id, student_id, full_name, email, role, created_at
-      FROM users
-      WHERE id = ?
-    `).get(req.user.id);
+    const result = await db.query(
+      `SELECT id, student_id, full_name, email, role, created_at
+       FROM users
+       WHERE id = $1`,
+      [req.user.id]
+    );
+
+    const user = result.rows[0];
 
     if (!user) {
       return res.status(404).json({

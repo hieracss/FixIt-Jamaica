@@ -20,7 +20,6 @@ import {
 } from "../services/api";
 import "./TechnicianJobDetails.css";
 
-const API_URL = import.meta.env.VITE_API_URL.replace(/\/api$/, "");
 
 function TechnicianJobDetails() {
   const { id } = useParams();
@@ -248,12 +247,12 @@ async function handleStatusUpdate(event) {
                   {report.photos.map((photo) => (
                     <a
                       key={photo.id}
-                      href={`${API_URL}/${photo.file_path.replace(/^\/+/, "")}`}
+                      href={photo.file_path}
                       target="_blank"
                       rel="noreferrer"
                     >
                       <img
-                        src={`${API_URL}/${photo.file_path.replace(/^\/+/, "")}`}
+                        src={photo.file_path}
                         alt={photo.original_name}
                       />
                       <span>{photo.original_name}</span>

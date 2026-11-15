@@ -154,34 +154,43 @@ function TechnicianJobs() {
             </div>
           ) : (
             <div className="technician-job-list">
-              {filteredReports.map((report) => (
-                <div className="technician-job-card" key={report.id}>
-                  <div className="technician-job-main">
-                    <span className="technician-job-reference">
-                      {report.reference}
-                    </span>
-                    <h3>{report.title}</h3>
-                    <p>
-                      {report.category} · {report.dormitory}
-                      {report.room_number
-                        ? ` · Room ${report.room_number}`
-                        : ""}
-                    </p>
-                    <span className="technician-job-student">
-                      Reported by {report.student_name}
-                    </span>
-                  </div>
+{filteredReports.map((report) => (
+  <Link
+    to={`/technician/jobs/${report.id}`}
+    className="technician-job-card"
+    key={report.id}
+  >
+    <div className="technician-job-main">
+      <span className="technician-job-reference">
+        {report.reference}
+      </span>
 
-                  <div className="technician-job-meta">
-                    <span className={`technician-job-urgency ${report.urgency}`}>
-                      {report.urgency} priority
-                    </span>
-                    <span className={`technician-job-status ${report.status}`}>
-                      {report.status.replace("_", " ")}
-                    </span>
-                  </div>
-                </div>
-              ))}
+      <h3>{report.title}</h3>
+
+      <p>
+        {report.category} · {report.dormitory}
+        {report.room_number
+          ? ` · Room ${report.room_number}`
+          : ""}
+      </p>
+
+      <span className="technician-job-student">
+        Reported by {report.student_name}
+      </span>
+    </div>
+
+    <div className="technician-job-meta">
+      <span className={`technician-job-urgency ${report.urgency}`}>
+        {report.urgency} priority
+      </span>
+
+      <span className={`technician-job-status ${report.status}`}>
+        {report.status.replace("_", " ")}
+      </span>
+    </div>
+  </Link>
+))}
+
             </div>
           )}
         </section>

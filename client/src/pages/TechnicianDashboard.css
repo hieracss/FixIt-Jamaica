@@ -10,15 +10,23 @@
 
 /* SIDEBAR */
 
+
 .technician-sidebar {
   width: 255px;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   padding: 26px 18px;
   background: #102b50;
   color: #ffffff;
+  overflow-y: auto;
+  z-index: 100;
 }
+
 
 .technician-brand {
   display: flex;
@@ -141,11 +149,14 @@
 
 /* MAIN CONTENT */
 
+
 .technician-main {
   flex: 1;
   min-width: 0;
+  margin-left: 255px;
   padding: 38px 42px;
 }
+
 
 .technician-header {
   margin-bottom: 28px;
@@ -323,9 +334,11 @@
   }
 
   .technician-sidebar {
-    width: auto;
-    padding: 16px;
-  }
+  position: relative;
+  width: 100%;
+  height: auto;
+  padding: 16px;
+}
 
   .technician-nav-label,
   .technician-sidebar-bottom {
@@ -344,8 +357,9 @@
   }
 
   .technician-main {
-    padding: 24px 16px;
-  }
+  margin-left: 0;
+  padding: 24px 16px;
+}
 
   .technician-welcome-card {
     padding: 23px;

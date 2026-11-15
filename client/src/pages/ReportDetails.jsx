@@ -27,10 +27,16 @@ const statusSteps = [
   { value: "resolved", label: "Resolved" },
 ];
 
+
 function formatDate(date) {
   if (!date) return "Not available";
 
-  const parsedDate = new Date(date.replace(" ", "T"));
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    console.error("Invalid date received:", date);
+    return "Date unavailable";
+  }
 
   return parsedDate.toLocaleString("en-JM", {
     day: "numeric",
@@ -40,6 +46,7 @@ function formatDate(date) {
     minute: "2-digit",
   });
 }
+
 
 function formatStatus(status) {
   const labels = {
@@ -249,14 +256,14 @@ function ReportDetails() {
               <div className="details-photo-grid">
                 {report.photos.map((photo) => (
                   <a
-                    href={`${API_SERVER}${photo.file_path}`}
+                    href={photo.file_path}
                     target="_blank"
                     rel="noreferrer"
                     key={photo.id}
                     className="details-photo"
                   >
                     <img
-                      src={`${API_SERVER}${photo.file_path}`}
+                      src={photo.file_path}
                       alt={photo.original_name}
                     />
                     <span>{photo.original_name}</span>

@@ -1,39 +1,65 @@
 
-const db = require("./database");
+require("dotenv").config();
 
-console.log("\n========== DATABASE TEST ==========\n");
+const db = require("./postgres");
 
-// Check database tables
-console.log("DATABASE TABLES:");
+async function testDatabase() {
+  console.log("\n========== DATABASE TEST ==========\n");
 
-const tables = db.prepare(`
-  SELECT name
-  FROM sqlite_master
-  WHERE type = 'table'
-  ORDER BY name
-`).all();
+  try {
+    // Check database tables
+    console.log("DATABASE TABLES:");
 
-console.table(tables);
+    const tables = await db.query(`
+      SELECT table_name AS name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_type = 'BASE TABLE'
+      ORDER BY table_name
+    `);
 
-// Check maintenance categories
-console.log("\nMAINTENANCE CATEGORIES:");
+    console.table(tables.rows);
 
-const categories = db.prepare(`
-  SELECT * FROM categories
-`).all();
 
-console.table(categories);
+    // Check administrator and technician accounts
+    console.log("\nDEMO ACCOUNTS:");
 
-// Check dormitories
-console.log("\nDORMITORIES:");
+    const users = await db.query(`
+      SELECT id, student_id, full_name, email, role, specialization
+      FROM users
+      ORDER BY id
+    `);
 
-const dormitories = db.prepare(`
-  SELECT * FROM dormitories
-`).all();
+    console.table(users.rows);
 
-console.table(dormitories);
+    // Check maintenance categories
+    console.log("\nMAINTENANCE CATEGORIES:");
 
-console.log("\n========== TEST COMPLETED ==========\n");
+    const categories = await db.query(`
+      SELECT * FROM categories
+      ORDER BY name
+    `);
 
-db.close();
+    console.table(categories.rows);
 
+    // Check dormitories
+    console.log("\nDORMITORIES:");
+
+    const dormitories = await db.query(`
+      SELECT * FROM dormitories
+      ORDER BY name
+    `);
+
+    console.table(dormitories.rows);
+
+    console.log("\n========== TEST COMPLETED ==========\n");
+
+  } catch (error) {
+    console.error("Database test failed:", error.message);
+
+  } finally {
+    await db.end();
+  }
+}
+
+testDatabase();

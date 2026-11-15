@@ -1,17 +1,17 @@
 
 const express = require("express");
-const fs = require("fs");
-const db = require("../config/database");
+const crypto = require("crypto");
+const supabase = require("../config/supabase");
+const db = require("../config/postgres");
 const authenticateToken = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 
 const router = express.Router();
 
 
- // GET ALL REPORTS BELONGING TO THE LOGGED-IN STUDENT
-router.get("/my-reports", authenticateToken, (req, res) => {
+// GET ALL REPORTS BELONGING TO THE LOGGED-IN STUDENT
+router.get("/my-reports", authenticateToken, async (req, res) => {
   try {
-    // Only student accounts can access this endpoint
     if (req.user.role !== "student") {
       return res.status(403).json({
         success: false,
@@ -19,8 +19,7 @@ router.get("/my-reports", authenticateToken, (req, res) => {
       });
     }
 
-    // Retrieve this student's reports
-    const reports = db.prepare(`
+    const result = await db.query(`
       SELECT
         r.id,
         r.reference,
@@ -34,25 +33,17 @@ router.get("/my-reports", authenticateToken, (req, res) => {
         r.updated_at,
         c.name AS category,
         d.name AS dormitory,
-        COUNT(p.id) AS photo_count
-
+        COUNT(p.id)::INTEGER AS photo_count
       FROM reports r
-
-      JOIN categories c
-        ON r.category_id = c.id
-
-      JOIN dormitories d
-        ON r.dormitory_id = d.id
-
-      LEFT JOIN report_photos p
-        ON r.id = p.report_id
-
-      WHERE r.student_id = ?
-
-      GROUP BY r.id
-
+      JOIN categories c ON r.category_id = c.id
+      JOIN dormitories d ON r.dormitory_id = d.id
+      LEFT JOIN report_photos p ON r.id = p.report_id
+      WHERE r.student_id = $1
+      GROUP BY r.id, c.name, d.name
       ORDER BY r.submitted_at DESC
-    `).all(req.user.id);
+    `, [req.user.id]);
+
+    const reports = result.rows;
 
     res.json({
       success: true,
@@ -72,7 +63,7 @@ router.get("/my-reports", authenticateToken, (req, res) => {
 
 
 // GET STUDENT DASHBOARD SUMMARY
-router.get("/dashboard", authenticateToken, (req, res) => {
+router.get("/dashboard", authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== "student") {
       return res.status(403).json({
@@ -84,27 +75,26 @@ router.get("/dashboard", authenticateToken, (req, res) => {
     const studentId = req.user.id;
 
     // Retrieve report statistics
-    const statistics = db.prepare(`
+    const statisticsResult = await db.query(`
       SELECT
-        COUNT(*) AS total,
-        SUM(CASE
-          WHEN status IN ('pending', 'under_review')
-          THEN 1 ELSE 0
-        END) AS pending,
-        SUM(CASE
-          WHEN status = 'in_progress'
-          THEN 1 ELSE 0
-        END) AS in_progress,
-        SUM(CASE
-          WHEN status = 'resolved'
-          THEN 1 ELSE 0
-        END) AS resolved
+        COUNT(*)::INTEGER AS total,
+        COUNT(*) FILTER (
+          WHERE status IN ('pending', 'under_review')
+        )::INTEGER AS pending,
+        COUNT(*) FILTER (
+          WHERE status = 'in_progress'
+        )::INTEGER AS in_progress,
+        COUNT(*) FILTER (
+          WHERE status = 'resolved'
+        )::INTEGER AS resolved
       FROM reports
-      WHERE student_id = ?
-    `).get(studentId);
+      WHERE student_id = $1
+    `, [studentId]);
+
+    const statistics = statisticsResult.rows[0];
 
     // Retrieve the three most recent reports
-    const recentReports = db.prepare(`
+    const recentReportsResult = await db.query(`
       SELECT
         r.id,
         r.reference,
@@ -115,13 +105,15 @@ router.get("/dashboard", authenticateToken, (req, res) => {
         c.name AS category
       FROM reports r
       JOIN categories c ON r.category_id = c.id
-      WHERE r.student_id = ?
+      WHERE r.student_id = $1
       ORDER BY r.submitted_at DESC
       LIMIT 3
-    `).all(studentId);
+    `, [studentId]);
+
+    const recentReports = recentReportsResult.rows;
 
     // Retrieve the latest maintenance update
-    const latestUpdate = db.prepare(`
+    const latestUpdateResult = await db.query(`
       SELECT
         ru.id,
         ru.note,
@@ -134,10 +126,12 @@ router.get("/dashboard", authenticateToken, (req, res) => {
       FROM report_updates ru
       JOIN reports r ON ru.report_id = r.id
       JOIN users u ON ru.author_id = u.id
-      WHERE r.student_id = ?
+      WHERE r.student_id = $1
       ORDER BY ru.created_at DESC, ru.id DESC
       LIMIT 1
-    `).get(studentId) || null;
+    `, [studentId]);
+
+    const latestUpdate = latestUpdateResult.rows[0] || null;
 
     res.json({
       success: true,
@@ -158,8 +152,9 @@ router.get("/dashboard", authenticateToken, (req, res) => {
   }
 });
 
+
 // GET DETAILS OF ONE STUDENT REPORT
-router.get("/:id", authenticateToken, (req, res) => {
+router.get("/:id", authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== "student") {
       return res.status(403).json({
@@ -170,7 +165,7 @@ router.get("/:id", authenticateToken, (req, res) => {
 
     const reportId = Number(req.params.id);
 
-    if (!Number.isInteger(reportId) || reportId <= 0) {
+    if (!Number.isSafeInteger(reportId) || reportId <= 0) {
       return res.status(400).json({
         success: false,
         message: "Invalid report ID."
@@ -178,7 +173,7 @@ router.get("/:id", authenticateToken, (req, res) => {
     }
 
     // Retrieve report only if it belongs to the logged-in student
-    const report = db.prepare(`
+    const reportResult = await db.query(`
       SELECT
         r.id,
         r.reference,
@@ -194,15 +189,14 @@ router.get("/:id", authenticateToken, (req, res) => {
         c.name AS category,
         d.name AS dormitory,
         u.full_name AS technician_name
-
       FROM reports r
-
       JOIN categories c ON r.category_id = c.id
       JOIN dormitories d ON r.dormitory_id = d.id
       LEFT JOIN users u ON r.assigned_technician_id = u.id
+      WHERE r.id = $1 AND r.student_id = $2
+    `, [reportId, req.user.id]);
 
-      WHERE r.id = ? AND r.student_id = ?
-    `).get(reportId, req.user.id);
+    const report = reportResult.rows[0];
 
     if (!report) {
       return res.status(404).json({
@@ -212,15 +206,33 @@ router.get("/:id", authenticateToken, (req, res) => {
     }
 
     // Retrieve photographs
-    const photos = db.prepare(`
+    const photosResult = await db.query(`
       SELECT id, filename, original_name, file_path, file_size
       FROM report_photos
-      WHERE report_id = ?
+      WHERE report_id = $1
       ORDER BY id
-    `).all(reportId);
+    `, [reportId]);
+
+    // Generate temporary URLs for private photographs
+const photos = await Promise.all(
+  photosResult.rows.map(async (photo) => {
+    const { data, error } = await supabase.storage
+      .from("report-photos")
+      .createSignedUrl(photo.file_path, 3600);
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      ...photo,
+      file_path: data.signedUrl
+    };
+  })
+);
 
     // Retrieve maintenance updates
-    const updates = db.prepare(`
+    const updatesResult = await db.query(`
       SELECT
         ru.id,
         ru.previous_status,
@@ -229,20 +241,18 @@ router.get("/:id", authenticateToken, (req, res) => {
         ru.created_at,
         u.full_name AS author_name,
         u.role AS author_role
-
       FROM report_updates ru
       JOIN users u ON ru.author_id = u.id
-
-      WHERE ru.report_id = ?
+      WHERE ru.report_id = $1
       ORDER BY ru.created_at ASC, ru.id ASC
-    `).all(reportId);
+    `, [reportId]);
 
     res.json({
       success: true,
       data: {
         ...report,
-        photos,
-        updates
+        photos: photos,
+        updates: updatesResult.rows
       }
     });
 
@@ -256,15 +266,16 @@ router.get("/:id", authenticateToken, (req, res) => {
   }
 });
 
+
 // SUBMIT A MAINTENANCE REPORT
 router.post(
   "/",
   authenticateToken,
   upload.array("photos", 3),
-  (req, res) => {
-    const files = req.files || [];
-
-    let transactionStarted = false;
+  async (req, res) => {
+   const files = req.files || [];
+const uploadedPaths = [];
+let client;
 
     try {
       // Only students can submit maintenance reports
@@ -316,25 +327,51 @@ router.post(
         });
       }
 
-      // Validate category
-      const category = db.prepare(
-        "SELECT id FROM categories WHERE id = ?"
-      ).get(Number(category_id));
+      const categoryId = Number(category_id);
+      const dormitoryId = Number(dormitory_id);
 
-      // Validate dormitory
-      const dormitory = db.prepare(
-        "SELECT id FROM dormitories WHERE id = ?"
-      ).get(Number(dormitory_id));
-
-      if (!category || !dormitory) {
+      if (
+        !Number.isSafeInteger(categoryId) ||
+        !Number.isSafeInteger(dormitoryId) ||
+        categoryId <= 0 ||
+        dormitoryId <= 0
+      ) {
         return res.status(400).json({
           success: false,
           message: "Invalid category or dormitory."
         });
       }
 
+      // Validate category
+      const categoryResult = await db.query(
+        "SELECT id FROM categories WHERE id = $1",
+        [categoryId]
+      );
+
+      // Validate dormitory
+      const dormitoryResult = await db.query(
+        "SELECT id FROM dormitories WHERE id = $1",
+        [dormitoryId]
+      );
+
+      if (
+        categoryResult.rows.length === 0 ||
+        dormitoryResult.rows.length === 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid category or dormitory."
+        });
+      }
+
+      // Get a dedicated PostgreSQL client for the transaction
+      client = await db.connect();
+
+      await client.query("BEGIN");
+
       // Generate a unique reference
       let reference;
+      let referenceExists;
 
       do {
         const randomNumber = Math.floor(
@@ -343,18 +380,17 @@ router.post(
 
         reference = `FI-${randomNumber}`;
 
-      } while (
-        db.prepare(
-          "SELECT id FROM reports WHERE reference = ?"
-        ).get(reference)
-      );
+        const existingReference = await client.query(
+          "SELECT id FROM reports WHERE reference = $1",
+          [reference]
+        );
 
-      // Start SQLite transaction
-      db.exec("BEGIN TRANSACTION");
-      transactionStarted = true;
+        referenceExists = existingReference.rows.length > 0;
+
+      } while (referenceExists);
 
       // Insert report
-      const result = db.prepare(`
+      const result = await client.query(`
         INSERT INTO reports (
           reference,
           student_id,
@@ -367,46 +403,62 @@ router.post(
           urgency,
           status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-      `).run(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+        RETURNING id
+      `, [
         reference,
         req.user.id,
-        Number(category_id),
-        Number(dormitory_id),
+        categoryId,
+        dormitoryId,
         room_number.trim(),
         specific_location.trim(),
         title.trim(),
         description.trim(),
         urgency
-      );
+      ]);
 
-      const reportId = Number(result.lastInsertRowid);
+      const reportId = result.rows[0].id;
 
-      // Save photographs
-      const insertPhoto = db.prepare(`
-        INSERT INTO report_photos (
-          report_id,
-          filename,
-          original_name,
-          file_path,
-          file_size
-        )
-        VALUES (?, ?, ?, ?, ?)
-      `);
+      // Upload photographs to Supabase Storage
+for (const file of files) {
+  const extension = file.mimetype === "image/jpeg" ? "jpg" : "png";
 
-      for (const file of files) {
-        insertPhoto.run(
-          reportId,
-          file.filename,
-          file.originalname,
-          `/uploads/${file.filename}`,
-          file.size
-        );
-      }
+  const filename = `${crypto.randomUUID()}.${extension}`;
+  const storagePath = `${reportId}/${filename}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("report-photos")
+    .upload(storagePath, file.buffer, {
+      contentType: file.mimetype,
+      upsert: false
+    });
+
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  uploadedPaths.push(storagePath);
+
+  await client.query(`
+    INSERT INTO report_photos (
+      report_id,
+      filename,
+      original_name,
+      file_path,
+      file_size
+    )
+    VALUES ($1, $2, $3, $4, $5)
+  `, [
+    reportId,
+    filename,
+    file.originalname,
+    storagePath,
+    file.size
+  ]);
+}
 
       // Commit transaction
-      db.exec("COMMIT");
-      transactionStarted = false;
+      await client.query("COMMIT");
 
       return res.status(201).json({
         success: true,
@@ -421,20 +473,24 @@ router.post(
 
     } catch (error) {
       // Roll back database changes if necessary
-      if (transactionStarted) {
+      if (client) {
         try {
-          db.exec("ROLLBACK");
+          await client.query("ROLLBACK");
         } catch (rollbackError) {
           console.error("Rollback error:", rollbackError);
         }
       }
 
-      // Remove uploaded files if submission failed
-      for (const file of files) {
-        if (fs.existsSync(file.path)) {
-          fs.unlinkSync(file.path);
-        }
-      }
+      // Remove uploaded photographs if submission failed
+if (uploadedPaths.length > 0) {
+  const { error: cleanupError } = await supabase.storage
+    .from("report-photos")
+    .remove(uploadedPaths);
+
+  if (cleanupError) {
+    console.error("Photo cleanup error:", cleanupError);
+  }
+}
 
       console.error("Report submission error:", error);
 
@@ -442,8 +498,15 @@ router.post(
         success: false,
         message: "Unable to submit maintenance report."
       });
+
+    } finally {
+      // Return the client to the connection pool
+      if (client) {
+        client.release();
+      }
     }
   }
 );
+
 
 module.exports = router;

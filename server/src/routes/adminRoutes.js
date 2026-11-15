@@ -1,6 +1,6 @@
-
+const supabase = require("../config/supabase");
 const express = require("express");
-const db = require("../config/database");
+const db = require("../config/postgres");
 const authenticateToken = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -18,31 +18,26 @@ function requireAdmin(req, res, next) {
 }
 
 // GET ADMIN DASHBOARD STATISTICS
-router.get("/dashboard", authenticateToken, requireAdmin, (req, res) => {
+router.get("/dashboard", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const totalReports = db.prepare(`
-      SELECT COUNT(*) AS total FROM reports
-    `).get().total;
-
-    const pendingReports = db.prepare(`
-      SELECT COUNT(*) AS total
+    const statisticsResult = await db.query(`
+      SELECT
+        COUNT(*)::INTEGER AS total,
+        COUNT(*) FILTER (
+          WHERE status IN ('pending', 'under_review')
+        )::INTEGER AS pending,
+        COUNT(*) FILTER (
+          WHERE status = 'in_progress'
+        )::INTEGER AS in_progress,
+        COUNT(*) FILTER (
+          WHERE status = 'resolved'
+        )::INTEGER AS resolved
       FROM reports
-      WHERE status IN ('pending', 'under_review')
-    `).get().total;
+    `);
 
-    const inProgressReports = db.prepare(`
-      SELECT COUNT(*) AS total
-      FROM reports
-      WHERE status = 'in_progress'
-    `).get().total;
+    const statistics = statisticsResult.rows[0];
 
-    const resolvedReports = db.prepare(`
-      SELECT COUNT(*) AS total
-      FROM reports
-      WHERE status = 'resolved'
-    `).get().total;
-
-    const recentReports = db.prepare(`
+    const recentReportsResult = await db.query(`
       SELECT
         r.id,
         r.reference,
@@ -59,18 +54,13 @@ router.get("/dashboard", authenticateToken, requireAdmin, (req, res) => {
       JOIN dormitories d ON r.dormitory_id = d.id
       ORDER BY r.submitted_at DESC
       LIMIT 5
-    `).all();
+    `);
 
     res.json({
       success: true,
       data: {
-        statistics: {
-          total: totalReports,
-          pending: pendingReports,
-          in_progress: inProgressReports,
-          resolved: resolvedReports
-        },
-        recentReports
+        statistics,
+        recentReports: recentReportsResult.rows
       }
     });
 
@@ -84,10 +74,11 @@ router.get("/dashboard", authenticateToken, requireAdmin, (req, res) => {
   }
 });
 
+
 // GET ALL MAINTENANCE REPORTS
-router.get("/reports", authenticateToken, requireAdmin, (req, res) => {
+router.get("/reports", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const reports = db.prepare(`
+    const result = await db.query(`
       SELECT
         r.id,
         r.reference,
@@ -103,7 +94,7 @@ router.get("/reports", authenticateToken, requireAdmin, (req, res) => {
         c.name AS category,
         d.name AS dormitory,
         (
-          SELECT COUNT(*)
+          SELECT COUNT(*)::INTEGER
           FROM report_photos rp
           WHERE rp.report_id = r.id
         ) AS photo_count
@@ -119,7 +110,9 @@ router.get("/reports", authenticateToken, requireAdmin, (req, res) => {
           ELSE 4
         END,
         r.submitted_at DESC
-    `).all();
+    `);
+
+    const reports = result.rows;
 
     res.json({
       success: true,
@@ -138,13 +131,11 @@ router.get("/reports", authenticateToken, requireAdmin, (req, res) => {
 });
 
 
-
 // GET ALL REGISTERED USERS
-router.get("/users", authenticateToken, requireAdmin, (req, res) => {
+router.get("/users", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { role, search, status } = req.query;
 
-   
     let query = `
       SELECT
         u.id,
@@ -156,12 +147,12 @@ router.get("/users", authenticateToken, requireAdmin, (req, res) => {
         u.is_active,
         u.created_at,
         (
-          SELECT COUNT(*)
+          SELECT COUNT(*)::INTEGER
           FROM reports r
           WHERE r.student_id = u.id
         ) AS reports_submitted,
         (
-          SELECT COUNT(*)
+          SELECT COUNT(*)::INTEGER
           FROM reports r
           WHERE r.assigned_technician_id = u.id
         ) AS assigned_reports
@@ -169,27 +160,34 @@ router.get("/users", authenticateToken, requireAdmin, (req, res) => {
       WHERE 1 = 1
     `;
 
-
     const params = [];
 
     // Filter by account role
     if (role && ["student", "technician", "admin"].includes(role)) {
-      query += " AND u.role = ?";
       params.push(role);
+      query += ` AND u.role = $${params.length}`;
     }
 
     // Search by name, student ID or email
     if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+
+      params.push(searchTerm);
+      const nameParam = `$${params.length}`;
+
+      params.push(searchTerm);
+      const studentIdParam = `$${params.length}`;
+
+      params.push(searchTerm);
+      const emailParam = `$${params.length}`;
+
       query += `
         AND (
-          u.full_name LIKE ?
-          OR u.student_id LIKE ?
-          OR u.email LIKE ?
+          u.full_name ILIKE ${nameParam}
+          OR u.student_id ILIKE ${studentIdParam}
+          OR u.email ILIKE ${emailParam}
         )
       `;
-
-      const searchTerm = `%${search.trim()}%`;
-      params.push(searchTerm, searchTerm, searchTerm);
     }
 
     // Filter by account status
@@ -201,7 +199,8 @@ router.get("/users", authenticateToken, requireAdmin, (req, res) => {
 
     query += " ORDER BY u.created_at DESC";
 
-    const users = db.prepare(query).all(...params);
+    const result = await db.query(query, params);
+    const users = result.rows;
 
     res.json({
       success: true,
@@ -220,17 +219,18 @@ router.get("/users", authenticateToken, requireAdmin, (req, res) => {
 });
 
 
+
 // CREATE A USER ACCOUNT
 router.post("/users", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const {
-  student_id,
-  full_name,
-  email,
-  password,
-  role,
-  specialization
-} = req.body;
+      student_id,
+      full_name,
+      email,
+      password,
+      role,
+      specialization
+    } = req.body;
 
     // Validate required fields
     if (
@@ -254,31 +254,33 @@ router.post("/users", authenticateToken, requireAdmin, async (req, res) => {
         message: "Invalid account role."
       });
     }
+
     // Validate technician specialization
-const allowedSpecializations = [
-  "plumber",
-  "electrician",
-  "carpenter",
-  "general_maintenance"
-];
+    const allowedSpecializations = [
+      "plumber",
+      "electrician",
+      "carpenter",
+      "general_maintenance"
+    ];
 
-if (
-  role === "technician" &&
-  !allowedSpecializations.includes(specialization)
-) {
-  return res.status(400).json({
-    success: false,
-    message: "Please select a valid technician specialization."
-  });
-}
+    if (
+      role === "technician" &&
+      !allowedSpecializations.includes(specialization)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select a valid technician specialization."
+      });
+    }
 
-// Students and administrators cannot have technician specializations
-if (role !== "technician" && specialization) {
-  return res.status(400).json({
-    success: false,
-    message: "Only technicians can have a specialization."
-  });
-}
+    // Students and administrators cannot have technician specializations
+    if (role !== "technician" && specialization) {
+      return res.status(400).json({
+        success: false,
+        message: "Only technicians can have a specialization."
+      });
+    }
+
     // Require student ID for students and technicians
     if (
       ["student", "technician"].includes(role) &&
@@ -312,14 +314,14 @@ if (role !== "technician" && specialization) {
     const cleanEmail = email.trim().toLowerCase();
 
     // Check for duplicate student ID or email
-    const existingUser = db.prepare(`
+    const existingUser = await db.query(`
       SELECT id
       FROM users
-      WHERE email = ?
-         OR (? IS NOT NULL AND student_id = ?)
-    `).get(cleanEmail, cleanStudentId, cleanStudentId);
+      WHERE email = $1
+         OR ($2::TEXT IS NOT NULL AND student_id = $2)
+    `, [cleanEmail, cleanStudentId]);
 
-    if (existingUser) {
+    if (existingUser.rows.length > 0) {
       return res.status(409).json({
         success: false,
         message: "An account with that student ID or email already exists."
@@ -330,30 +332,31 @@ if (role !== "technician" && specialization) {
     const passwordHash = await bcrypt.hash(password, 12);
 
     // Create account
-    const result = db.prepare(`
+    const result = await db.query(`
       INSERT INTO users (
-  student_id,
-  full_name,
-  email,
-  password_hash,
-  role,
-  specialization
-)
-VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-  cleanStudentId,
-  full_name.trim(),
-  cleanEmail,
-  passwordHash,
-  role,
-  role === "technician" ? specialization : null
-);
+        student_id,
+        full_name,
+        email,
+        password_hash,
+        role,
+        specialization
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id
+    `, [
+      cleanStudentId,
+      full_name.trim(),
+      cleanEmail,
+      passwordHash,
+      role,
+      role === "technician" ? specialization : null
+    ]);
 
     res.status(201).json({
       success: true,
       message: "User account created successfully.",
       data: {
-        id: Number(result.lastInsertRowid),
+        id: result.rows[0].id,
         student_id: cleanStudentId,
         full_name: full_name.trim(),
         email: cleanEmail,
@@ -366,6 +369,13 @@ VALUES (?, ?, ?, ?, ?, ?)
   } catch (error) {
     console.error("User creation error:", error);
 
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "An account with that student ID or email already exists."
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Unable to create user account."
@@ -374,14 +384,14 @@ VALUES (?, ?, ?, ?, ?, ?)
 });
 
 
-// UPDATE USER ACCOUNT DETAILS
-router.patch("/users/:id", authenticateToken, requireAdmin, (req, res) => {
+ // UPDATE USER ACCOUNT DETAILS
+router.patch("/users/:id", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const userId = Number(req.params.id);
     const { student_id, full_name, email, specialization } = req.body;
 
     // Validate user ID
-    if (!Number.isInteger(userId) || userId <= 0) {
+    if (!Number.isSafeInteger(userId) || userId <= 0) {
       return res.status(400).json({
         success: false,
         message: "Invalid user ID."
@@ -407,11 +417,13 @@ router.patch("/users/:id", authenticateToken, requireAdmin, (req, res) => {
     }
 
     // Find existing user
-    const existingUser = db.prepare(`
+    const userResult = await db.query(`
       SELECT id, role
       FROM users
-      WHERE id = ?
-    `).get(userId);
+      WHERE id = $1
+    `, [userId]);
+
+    const existingUser = userResult.rows[0];
 
     if (!existingUser) {
       return res.status(404).json({
@@ -419,31 +431,32 @@ router.patch("/users/:id", authenticateToken, requireAdmin, (req, res) => {
         message: "User account not found."
       });
     }
+
     // Validate technician specialization
-const allowedSpecializations = [
-  "plumber",
-  "electrician",
-  "carpenter",
-  "general_maintenance"
-];
+    const allowedSpecializations = [
+      "plumber",
+      "electrician",
+      "carpenter",
+      "general_maintenance"
+    ];
 
-if (
-  existingUser.role === "technician" &&
-  !allowedSpecializations.includes(specialization)
-) {
-  return res.status(400).json({
-    success: false,
-    message: "Please select a valid technician specialization."
-  });
-}
+    if (
+      existingUser.role === "technician" &&
+      !allowedSpecializations.includes(specialization)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select a valid technician specialization."
+      });
+    }
 
-// Students and administrators cannot have specializations
-if (existingUser.role !== "technician" && specialization) {
-  return res.status(400).json({
-    success: false,
-    message: "Only technicians can have a specialization."
-  });
-}
+    // Students and administrators cannot have specializations
+    if (existingUser.role !== "technician" && specialization) {
+      return res.status(400).json({
+        success: false,
+        message: "Only technicians can have a specialization."
+      });
+    }
 
     const cleanStudentId = student_id?.trim() || null;
     const cleanEmail = email.trim().toLowerCase();
@@ -460,22 +473,17 @@ if (existingUser.role !== "technician" && specialization) {
     }
 
     // Check whether another account uses this email or student ID
-    const duplicateUser = db.prepare(`
+    const duplicateResult = await db.query(`
       SELECT id
       FROM users
-      WHERE id != ?
+      WHERE id != $1
         AND (
-          email = ?
-          OR (? IS NOT NULL AND student_id = ?)
+          email = $2
+          OR ($3::TEXT IS NOT NULL AND student_id = $3)
         )
-    `).get(
-      userId,
-      cleanEmail,
-      cleanStudentId,
-      cleanStudentId
-    );
+    `, [userId, cleanEmail, cleanStudentId]);
 
-    if (duplicateUser) {
+    if (duplicateResult.rows.length > 0) {
       return res.status(409).json({
         success: false,
         message: "Another account already uses that email or student ID."
@@ -483,21 +491,22 @@ if (existingUser.role !== "technician" && specialization) {
     }
 
     // Update account details
-    db.prepare(`
+    await db.query(`
       UPDATE users
-SET
-  student_id = ?,
-  full_name = ?,
-  email = ?,
-  specialization = ?
-WHERE id = ?
-    `).run(
-  cleanStudentId,
-  full_name.trim(),
-  cleanEmail,
-  existingUser.role === "technician" ? specialization : null,
-  userId
-);
+      SET
+        student_id = $1,
+        full_name = $2,
+        email = $3,
+        specialization = $4
+      WHERE id = $5
+    `, [
+      cleanStudentId,
+      full_name.trim(),
+      cleanEmail,
+      existingUser.role === "technician" ? specialization : null,
+      userId
+    ]);
+
     res.json({
       success: true,
       message: "User account updated successfully."
@@ -506,6 +515,13 @@ WHERE id = ?
   } catch (error) {
     console.error("User update error:", error);
 
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "Another account already uses that email or student ID."
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Unable to update user account."
@@ -513,42 +529,52 @@ WHERE id = ?
   }
 });
 
+
 // ACTIVATE OR DEACTIVATE A USER ACCOUNT
 router.patch(
   "/users/:id/status",
   authenticateToken,
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
+    const userId = Number(req.params.id);
+    const { is_active } = req.body;
+
+    if (!Number.isSafeInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID."
+      });
+    }
+
+    if (![true, false, 1, 0].includes(is_active)) {
+      return res.status(400).json({
+        success: false,
+        message: "Account status must be active or inactive."
+      });
+    }
+
+    const activeStatus = is_active === true || is_active === 1 ? 1 : 0;
+
+    let client;
+
     try {
-      const userId = Number(req.params.id);
-      const { is_active } = req.body;
+      client = await db.connect();
 
-      // Validate user ID
-      if (!Number.isInteger(userId) || userId <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid user ID."
-        });
-      }
+      await client.query("BEGIN");
 
-      // Accept only true, false, 1 or 0
-      if (![true, false, 1, 0].includes(is_active)) {
-        return res.status(400).json({
-          success: false,
-          message: "Account status must be active or inactive."
-        });
-      }
-
-      const activeStatus = is_active === true || is_active === 1 ? 1 : 0;
-
-      // Find the account
-      const targetUser = db.prepare(`
+      // Find and lock the account
+      const userResult = await client.query(`
         SELECT id, full_name, role, is_active
         FROM users
-        WHERE id = ?
-      `).get(userId);
+        WHERE id = $1
+        FOR UPDATE
+      `, [userId]);
+
+      const targetUser = userResult.rows[0];
 
       if (!targetUser) {
+        await client.query("ROLLBACK");
+
         return res.status(404).json({
           success: false,
           message: "User account not found."
@@ -556,7 +582,12 @@ router.patch(
       }
 
       // Prevent administrators from deactivating their own account
-      if (userId === req.user.id && activeStatus === 0) {
+      if (
+        String(userId) === String(req.user.id) &&
+        activeStatus === 0
+      ) {
+        await client.query("ROLLBACK");
+
         return res.status(400).json({
           success: false,
           message: "You cannot deactivate your own administrator account."
@@ -565,6 +596,8 @@ router.patch(
 
       // No update needed if the account already has this status
       if (targetUser.is_active === activeStatus) {
+        await client.query("COMMIT");
+
         return res.json({
           success: true,
           message: "The account already has the requested status."
@@ -576,14 +609,27 @@ router.patch(
         targetUser.role === "admin" &&
         activeStatus === 0
       ) {
-        const activeAdmins = db.prepare(`
-          SELECT COUNT(*) AS total
+        // Lock active administrator accounts while checking
+        await client.query(`
+          SELECT id
           FROM users
           WHERE role = 'admin'
             AND is_active = 1
-        `).get().total;
+          FOR UPDATE
+        `);
+
+        const activeAdminsResult = await client.query(`
+          SELECT COUNT(*)::INTEGER AS total
+          FROM users
+          WHERE role = 'admin'
+            AND is_active = 1
+        `);
+
+        const activeAdmins = activeAdminsResult.rows[0].total;
 
         if (activeAdmins <= 1) {
+          await client.query("ROLLBACK");
+
           return res.status(400).json({
             success: false,
             message: "The last active administrator cannot be deactivated."
@@ -596,14 +642,18 @@ router.patch(
         targetUser.role === "technician" &&
         activeStatus === 0
       ) {
-        const activeJobs = db.prepare(`
-          SELECT COUNT(*) AS total
+        const activeJobsResult = await client.query(`
+          SELECT COUNT(*)::INTEGER AS total
           FROM reports
-          WHERE assigned_technician_id = ?
+          WHERE assigned_technician_id = $1
             AND status IN ('pending', 'under_review', 'in_progress')
-        `).get(userId).total;
+        `, [userId]);
+
+        const activeJobs = activeJobsResult.rows[0].total;
 
         if (activeJobs > 0) {
+          await client.query("ROLLBACK");
+
           return res.status(400).json({
             success: false,
             message: "Reassign this technician's unresolved reports before deactivating the account."
@@ -612,11 +662,13 @@ router.patch(
       }
 
       // Update account status
-      db.prepare(`
+      await client.query(`
         UPDATE users
-        SET is_active = ?
-        WHERE id = ?
-      `).run(activeStatus, userId);
+        SET is_active = $1
+        WHERE id = $2
+      `, [activeStatus, userId]);
+
+      await client.query("COMMIT");
 
       res.json({
         success: true,
@@ -631,22 +683,35 @@ router.patch(
       });
 
     } catch (error) {
+      if (client) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          console.error("Rollback error:", rollbackError);
+        }
+      }
+
       console.error("Account status update error:", error);
 
       res.status(500).json({
         success: false,
         message: "Unable to update account status."
       });
+
+    } finally {
+      if (client) {
+        client.release();
+      }
     }
   }
 );
 
 // GET DETAILS OF AN INDIVIDUAL REPORT (ADMIN)
-router.get("/reports/:id", authenticateToken, requireAdmin, (req, res) => {
+router.get("/reports/:id", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const reportId = Number(req.params.id);
 
-    if (!Number.isInteger(reportId) || reportId <= 0) {
+    if (!Number.isSafeInteger(reportId) || reportId <= 0) {
       return res.status(400).json({
         success: false,
         message: "Invalid report ID."
@@ -654,7 +719,7 @@ router.get("/reports/:id", authenticateToken, requireAdmin, (req, res) => {
     }
 
     // Retrieve report and associated information
-    const report = db.prepare(`
+    const reportResult = await db.query(`
       SELECT
         r.id,
         r.reference,
@@ -667,27 +732,23 @@ router.get("/reports/:id", authenticateToken, requireAdmin, (req, res) => {
         r.submitted_at,
         r.updated_at,
         r.resolved_at,
-
         u.full_name AS student_name,
         u.student_id AS student_number,
         u.email AS student_email,
-
         c.name AS category,
         d.name AS dormitory,
-
         technician.full_name AS technician_name,
         technician.id AS technician_id
-
       FROM reports r
-
       JOIN users u ON r.student_id = u.id
       JOIN categories c ON r.category_id = c.id
       JOIN dormitories d ON r.dormitory_id = d.id
       LEFT JOIN users technician
         ON r.assigned_technician_id = technician.id
+      WHERE r.id = $1
+    `, [reportId]);
 
-      WHERE r.id = ?
-    `).get(reportId);
+    const report = reportResult.rows[0];
 
     if (!report) {
       return res.status(404).json({
@@ -697,7 +758,7 @@ router.get("/reports/:id", authenticateToken, requireAdmin, (req, res) => {
     }
 
     // Retrieve uploaded photographs
-    const photos = db.prepare(`
+    const photosResult = await db.query(`
       SELECT
         id,
         filename,
@@ -705,12 +766,30 @@ router.get("/reports/:id", authenticateToken, requireAdmin, (req, res) => {
         file_path,
         file_size
       FROM report_photos
-      WHERE report_id = ?
+      WHERE report_id = $1
       ORDER BY id
-    `).all(reportId);
+    `, [reportId]);
+
+    // Generate temporary URLs for private photographs
+const photos = await Promise.all(
+  photosResult.rows.map(async (photo) => {
+    const { data, error } = await supabase.storage
+      .from("report-photos")
+      .createSignedUrl(photo.file_path, 3600);
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      ...photo,
+      file_path: data.signedUrl
+    };
+  })
+);
 
     // Retrieve maintenance updates
-    const updates = db.prepare(`
+    const updatesResult = await db.query(`
       SELECT
         ru.id,
         ru.previous_status,
@@ -719,20 +798,18 @@ router.get("/reports/:id", authenticateToken, requireAdmin, (req, res) => {
         ru.created_at,
         u.full_name AS author_name,
         u.role AS author_role
-
       FROM report_updates ru
       JOIN users u ON ru.author_id = u.id
-
-      WHERE ru.report_id = ?
+      WHERE ru.report_id = $1
       ORDER BY ru.created_at ASC, ru.id ASC
-    `).all(reportId);
+    `, [reportId]);
 
     res.json({
       success: true,
       data: {
         ...report,
-        photos,
-        updates
+        photos: photos,
+        updates: updatesResult.rows
       }
     });
 
@@ -747,10 +824,9 @@ router.get("/reports/:id", authenticateToken, requireAdmin, (req, res) => {
 });
 
 // GET ALL REGISTERED TECHNICIANS
-router.get("/technicians", authenticateToken, requireAdmin, (req, res) => {
+router.get("/technicians", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    
-    const technicians = db.prepare(`
+    const result = await db.query(`
       SELECT
         id,
         student_id,
@@ -761,8 +837,9 @@ router.get("/technicians", authenticateToken, requireAdmin, (req, res) => {
       WHERE role = 'technician'
         AND is_active = 1
       ORDER BY full_name ASC
-    `).all();
+    `);
 
+    const technicians = result.rows;
 
     res.json({
       success: true,
@@ -780,332 +857,346 @@ router.get("/technicians", authenticateToken, requireAdmin, (req, res) => {
   }
 });
 
+
 // CREATE A TECHNICIAN ACCOUNT
-router.post("/technicians", authenticateToken, requireAdmin, async (req, res) => {
+
+router.post("/technicians", async (req, res) => {
   try {
     const {
-  student_id,
-  full_name,
-  email,
-  password,
-  specialization
-} = req.body;
+      student_id,
+      full_name,
+      email,
+      password,
+      specialization
+    } = req.body;
 
-    if (
-      !student_id?.trim() ||
-      !full_name?.trim() ||
-      !email?.trim() ||
-      !password
-    ) {
+    if (!student_id || !full_name || !email || !password) {
       return res.status(400).json({
         success: false,
-        message: "Please complete all technician account fields."
+        message: "Student ID, full name, email, and password are required."
       });
     }
 
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: "Password must contain at least 8 characters."
+        message: "Password must be at least 8 characters long."
       });
     }
 
-    const existingUser = db.prepare(`
-      SELECT id FROM users
-      WHERE student_id = ? OR email = ?
-    `).get(student_id.trim(), email.trim().toLowerCase());
+    const allowedSpecializations = [
+      "plumber",
+      "electrician",
+      "carpenter",
+      "general_maintenance"
+    ];
 
-    if (existingUser) {
+    const selectedSpecialization =
+      specialization || "general_maintenance";
+
+    if (!allowedSpecializations.includes(selectedSpecialization)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid technician specialization."
+      });
+    }
+
+    const existingUser = await db.query(
+      `SELECT id FROM users
+       WHERE student_id = $1 OR email = $2`,
+      [student_id, email]
+    );
+
+    if (existingUser.rows.length > 0) {
       return res.status(409).json({
         success: false,
-        message: "An account with that student ID or email already exists."
+        message: "A user with that Student ID or email already exists."
       });
     }
-    const allowedSpecializations = [
-  "plumber",
-  "electrician",
-  "carpenter",
-  "general_maintenance"
-];
 
-if (!allowedSpecializations.includes(specialization)) {
-  return res.status(400).json({
-    success: false,
-    message: "Please select a valid technician specialization."
-  });
-}
+    const passwordHash = await bcrypt.hash(password, 10);
 
-    const passwordHash = await bcrypt.hash(password, 12);
-
-   const result = db.prepare(`
-  INSERT INTO users (
-    student_id,
-    full_name,
-    email,
-    password_hash,
-    role,
-    specialization
-  )
-  VALUES (?, ?, ?, ?, 'technician', ?)
-`).run(
-  student_id.trim(),
-  full_name.trim(),
-  email.trim().toLowerCase(),
-  passwordHash,
-  specialization
-);
-
-    res.status(201).json({
-      success: true,
-      message: "Technician account created successfully.",
-      data: {
-        id: Number(result.lastInsertRowid),
-        student_id: student_id.trim(),
-        full_name: full_name.trim(),
-        email: email.trim().toLowerCase(),
-        role: "technician",
+    const result = await db.query(
+      `INSERT INTO users (
+        student_id,
+        full_name,
+        email,
+        password_hash,
+        role,
         specialization
+      )
+      VALUES ($1, $2, $3, $4, 'technician', $5)
+      RETURNING id`,
+      [
+        student_id,
+        full_name,
+        email,
+        passwordHash,
+        selectedSpecialization
+      ]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Technician created successfully.",
+      technician: {
+        id: result.rows[0].id,
+        student_id,
+        full_name,
+        email,
+        specialization: selectedSpecialization
       }
     });
 
   } catch (error) {
-    console.error("Technician creation error:", error);
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "A user with that Student ID or email already exists."
+      });
+    }
 
-    res.status(500).json({
+    console.error("Create technician error:", error);
+
+    return res.status(500).json({
       success: false,
-      message: "Unable to create technician account."
+      message: "Unable to create technician."
     });
   }
 });
 
+
 // ASSIGN A TECHNICIAN TO A MAINTENANCE REPORT
-router.patch(
-  "/reports/:id/assign",
-  authenticateToken,
-  requireAdmin,
-  (req, res) => {
-    try {
-      const reportId = Number(req.params.id);
-      const technicianId = Number(req.body.technician_id);
 
-      if (
-        !Number.isInteger(reportId) ||
-        reportId <= 0 ||
-        !Number.isInteger(technicianId) ||
-        technicianId <= 0
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid report or technician ID."
-        });
-      }
+router.patch("/reports/:id/assign", authenticateToken, requireAdmin, async (req, res) => {
+  const reportId = Number(req.params.id);
+  const { technician_id } = req.body;
 
-      const report = db.prepare(`
-        SELECT id, status
-        FROM reports
-        WHERE id = ?
-      `).get(reportId);
+  if (!Number.isSafeInteger(reportId) || reportId <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid report ID."
+    });
+  }
 
-      if (!report) {
-        return res.status(404).json({
-          success: false,
-          message: "Maintenance report not found."
-        });
-      }
+  if (!technician_id || !Number.isSafeInteger(Number(technician_id))) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid technician ID is required."
+    });
+  }
 
-      const technician = db.prepare(`
-  SELECT id, full_name
-  FROM users
-  WHERE id = ?
-    AND role = 'technician'
-    AND is_active = 1
-`).get(technicianId);
+  const client = await db.connect();
 
-      if (!technician) {
-        return res.status(404).json({
-          success: false,
-          message: "Registered technician not found."
-        });
-      }
+  try {
+    await client.query("BEGIN");
 
-      db.exec("BEGIN TRANSACTION");
+    const reportResult = await client.query(
+      `SELECT id, status
+       FROM reports
+       WHERE id = $1
+       FOR UPDATE`,
+      [reportId]
+    );
 
-      try {
-        db.prepare(`
-          UPDATE reports
-          SET
-            assigned_technician_id = ?,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(technicianId, reportId);
+    const report = reportResult.rows[0];
 
-        db.prepare(`
-          INSERT INTO report_updates (
-            report_id,
-            author_id,
-            previous_status,
-            new_status,
-            note
-          )
-          VALUES (?, ?, ?, ?, ?)
-        `).run(
-          reportId,
-          req.user.id,
-          report.status,
-          report.status,
-          `Maintenance technician assigned: ${technician.full_name}.`
-        );
-
-        db.exec("COMMIT");
-
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-
-      res.json({
-        success: true,
-        message: "Technician assigned successfully.",
-        data: {
-          report_id: reportId,
-          technician_id: technician.id,
-          technician_name: technician.full_name
-        }
-      });
-
-    } catch (error) {
-      console.error("Technician assignment error:", error);
-
-      res.status(500).json({
+    if (!report) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
         success: false,
-        message: "Unable to assign technician."
+        message: "Report not found."
       });
     }
-  }
+
+    const technicianResult = await client.query(
+      `SELECT id, full_name
+       FROM users
+       WHERE id = $1
+       AND role = 'technician'
+       AND is_active = 1`,
+      [technician_id]
+    );
+
+    const technician = technicianResult.rows[0];
+
+    if (!technician) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        success: false,
+        message: "Active technician not found."
+      });
+    }
+
+await client.query(
+  `UPDATE reports
+   SET assigned_technician_id = $1,
+       status = CASE
+         WHEN status = 'pending' THEN 'under_review'
+         ELSE status
+       END,
+       updated_at = CURRENT_TIMESTAMP
+   WHERE id = $2`,
+  [technician.id, reportId]
 );
+const newStatus =
+  report.status === "pending"
+    ? "under_review"
+    : report.status;
+
+await client.query(
+  `INSERT INTO report_updates (
+    report_id,
+    author_id,
+    previous_status,
+    new_status,
+    note
+  )
+  VALUES ($1, $2, $3, $4, $5)`,
+  [
+    reportId,
+    req.user.id,
+    report.status,
+    newStatus,
+    `Maintenance technician assigned: ${technician.full_name}.`
+  ]
+);
+
+
+    await client.query("COMMIT");
+
+    return res.json({
+      success: true,
+      message: "Technician assigned successfully."
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    console.error("Assign technician error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to assign technician."
+    });
+
+  } finally {
+    client.release();
+  }
+});
 
 // UPDATE THE STATUS OF A MAINTENANCE REPORT
-router.patch(
-  "/reports/:id/status",
-  authenticateToken,
-  requireAdmin,
-  (req, res) => {
-    try {
-      const reportId = Number(req.params.id);
-      const { status, note } = req.body;
 
-      const allowedStatuses = [
-        "pending",
-        "under_review",
-        "in_progress",
-        "resolved"
-      ];
+router.patch("/reports/:id/status", authenticateToken, requireAdmin, async (req, res) => {
+  const reportId = Number(req.params.id);
+  const { status, note } = req.body;
 
-      // Validate report ID
-      if (!Number.isInteger(reportId) || reportId <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid report ID."
-        });
-      }
+  const allowedStatuses = [
+    "pending",
+    "under_review",
+    "in_progress",
+    "resolved"
+  ];
 
-      // Validate status
-      if (!allowedStatuses.includes(status)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid report status."
-        });
-      }
+  if (!Number.isSafeInteger(reportId) || reportId <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid report ID."
+    });
+  }
 
-      // Validate optional note
-      if (note !== undefined && typeof note !== "string") {
-        return res.status(400).json({
-          success: false,
-          message: "Maintenance note must be text."
-        });
-      }
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid report status."
+    });
+  }
 
-      // Find the existing report
-      const report = db.prepare(`
-        SELECT id, status
-        FROM reports
-        WHERE id = ?
-      `).get(reportId);
+  if (note !== undefined && typeof note !== "string") {
+    return res.status(400).json({
+      success: false,
+      message: "The note must be text."
+    });
+  }
 
-      if (!report) {
-        return res.status(404).json({
-          success: false,
-          message: "Maintenance report not found."
-        });
-      }
+  const cleanNote =
+    note?.trim() || `Report status changed to ${status.replace("_", " ")}.`;
 
-      const previousStatus = report.status;
+  const client = await db.connect();
 
-      const cleanNote = note?.trim() ||
-        `Report status changed from ${previousStatus} to ${status}.`;
+  try {
+    await client.query("BEGIN");
 
-      // Begin database transaction
-      db.exec("BEGIN TRANSACTION");
+    const reportResult = await client.query(
+      `SELECT id, status
+       FROM reports
+       WHERE id = $1
+       FOR UPDATE`,
+      [reportId]
+    );
 
-      try {
-        // Update report status
-        db.prepare(`
-          UPDATE reports
-          SET
-            status = ?,
-            updated_at = CURRENT_TIMESTAMP,
-            resolved_at = CASE
-              WHEN ? = 'resolved' THEN CURRENT_TIMESTAMP
-              ELSE NULL
-            END
-          WHERE id = ?
-        `).run(status, status, reportId);
+    const report = reportResult.rows[0];
 
-        // Record the status change in maintenance history
-        db.prepare(`
-          INSERT INTO report_updates (
-            report_id,
-            author_id,
-            previous_status,
-            new_status,
-            note
-          )
-          VALUES (?, ?, ?, ?, ?)
-        `).run(
-          reportId,
-          req.user.id,
-          previousStatus,
-          status,
-          cleanNote
-        );
+    if (!report) {
+      await client.query("ROLLBACK");
 
-        db.exec("COMMIT");
-
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-
-      res.json({
-        success: true,
-        message: "Report status updated successfully.",
-        data: {
-          report_id: reportId,
-          previous_status: previousStatus,
-          new_status: status,
-          note: cleanNote
-        }
-      });
-
-    } catch (error) {
-      console.error("Report status update error:", error);
-
-      res.status(500).json({
+      return res.status(404).json({
         success: false,
-        message: "Unable to update report status."
+        message: "Report not found."
       });
     }
+
+    await client.query(
+      `UPDATE reports
+       SET status = $1,
+           updated_at = CURRENT_TIMESTAMP,
+           resolved_at = CASE
+             WHEN $1 = 'resolved' THEN CURRENT_TIMESTAMP
+             ELSE NULL
+           END
+       WHERE id = $2`,
+      [status, reportId]
+    );
+
+    await client.query(
+      `INSERT INTO report_updates (
+        report_id,
+        author_id,
+        previous_status,
+        new_status,
+        note
+      )
+      VALUES ($1, $2, $3, $4, $5)`,
+      [
+        reportId,
+        req.user.id,
+        report.status,
+        status,
+        cleanNote
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.json({
+      success: true,
+      message: "Report status updated successfully."
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    console.error("Update report status error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update report status."
+    });
+
+  } finally {
+    client.release();
   }
-);
+});
+
 
 module.exports = router;

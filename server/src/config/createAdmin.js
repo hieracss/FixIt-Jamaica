@@ -1,42 +1,60 @@
 
-const db = require("./database");
+require("dotenv").config();
+
+const db = require("./postgres");
 const bcrypt = require("bcryptjs");
 
 async function createAdmin() {
-  const fullName = "FixIt Administrator";
-  const studentId = "ADMIN001";
-  const email = "admin@fixitjamaica.com";
-  const password = "AdminFixIt2026!";
+  const fullName = process.env.ADMIN_FULL_NAME;
+  const studentId = process.env.ADMIN_STUDENT_ID;
+  const email = process.env.ADMIN_EMAIL;
+  const password = process.env.ADMIN_PASSWORD;
 
   try {
-    const existingAdmin = db.prepare(
-      "SELECT id FROM users WHERE email = ? OR student_id = ?"
-    ).get(email, studentId);
+    if (!fullName || !studentId || !email || !password) {
+      throw new Error("Missing administrator details in .env.");
+    }
 
-    if (existingAdmin) {
+    const existingAdmin = await db.query(
+      `SELECT id FROM users
+       WHERE email = $1 OR student_id = $2`,
+      [email, studentId]
+    );
+
+    if (existingAdmin.rows.length > 0) {
       console.log("An account with these details already exists.");
       return;
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    db.prepare(`
-      INSERT INTO users (
+    const result = await db.query(
+      `INSERT INTO users (
         student_id,
         full_name,
         email,
         password_hash,
         role
       )
-      VALUES (?, ?, ?, ?, 'admin')
-    `).run(studentId, fullName, email, passwordHash);
+      VALUES ($1, $2, $3, $4, 'admin')
+      RETURNING id`,
+      [studentId, fullName, email, passwordHash]
+    );
 
     console.log("Admin account created successfully!");
+    console.log("Administrator ID:", result.rows[0].id);
     console.log("Email:", email);
     console.log("Student ID:", studentId);
-    console.log("Temporary password:", password);
+
   } catch (error) {
-    console.error("Error creating admin:", error.message);
+    if (error.code === "23505") {
+      console.error("An account with these details already exists.");
+    } else {
+      console.error("Error creating admin:", error.message);
+    }
+
+  } finally {
+    await db.end();
   }
 }
 

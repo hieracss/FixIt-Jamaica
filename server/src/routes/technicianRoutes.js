@@ -1,6 +1,6 @@
-
 const express = require("express");
-const db = require("../config/database");
+const db = require("../config/postgres");
+const supabase = require("../config/supabase");
 const authenticateToken = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -17,28 +17,37 @@ function requireTechnician(req, res, next) {
   next();
 }
 
+
 // GET TECHNICIAN DASHBOARD AND ASSIGNED REPORTS
 router.get(
   "/dashboard",
   authenticateToken,
   requireTechnician,
-  (req, res) => {
+  async (req, res) => {
     try {
       const technicianId = req.user.id;
 
       // Retrieve technician statistics
-      const statistics = db.prepare(`
+      const statisticsResult = await db.query(`
         SELECT
-          COUNT(*) AS total,
-          SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
-          SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS resolved,
-          SUM(CASE WHEN urgency = 'high' THEN 1 ELSE 0 END) AS high_priority
+          COUNT(*)::INTEGER AS total,
+          COUNT(*) FILTER (
+            WHERE status = 'in_progress'
+          )::INTEGER AS in_progress,
+          COUNT(*) FILTER (
+            WHERE status = 'resolved'
+          )::INTEGER AS resolved,
+          COUNT(*) FILTER (
+            WHERE urgency = 'high'
+          )::INTEGER AS high_priority
         FROM reports
-        WHERE assigned_technician_id = ?
-      `).get(technicianId);
+        WHERE assigned_technician_id = $1
+      `, [technicianId]);
+
+      const statistics = statisticsResult.rows[0];
 
       // Retrieve reports assigned to this technician
-      const reports = db.prepare(`
+      const reportsResult = await db.query(`
         SELECT
           r.id,
           r.reference,
@@ -52,15 +61,11 @@ router.get(
           u.full_name AS student_name,
           c.name AS category,
           d.name AS dormitory
-
         FROM reports r
-
         JOIN users u ON r.student_id = u.id
         JOIN categories c ON r.category_id = c.id
         JOIN dormitories d ON r.dormitory_id = d.id
-
-        WHERE r.assigned_technician_id = ?
-
+        WHERE r.assigned_technician_id = $1
         ORDER BY
           CASE r.urgency
             WHEN 'high' THEN 1
@@ -69,13 +74,13 @@ router.get(
             ELSE 4
           END,
           r.submitted_at DESC
-      `).all(technicianId);
+      `, [technicianId]);
 
       res.json({
         success: true,
         data: {
           statistics,
-          reports
+          reports: reportsResult.rows
         }
       });
 
@@ -90,17 +95,18 @@ router.get(
   }
 );
 
+
 // GET DETAILS OF AN INDIVIDUAL ASSIGNED REPORT
 router.get(
   "/reports/:id",
   authenticateToken,
   requireTechnician,
-  (req, res) => {
+  async (req, res) => {
     try {
       const technicianId = req.user.id;
       const reportId = Number(req.params.id);
 
-      if (!Number.isInteger(reportId) || reportId <= 0) {
+      if (!Number.isSafeInteger(reportId) || reportId <= 0) {
         return res.status(400).json({
           success: false,
           message: "Invalid report ID."
@@ -108,7 +114,7 @@ router.get(
       }
 
       // Only retrieve reports assigned to this technician
-      const report = db.prepare(`
+      const reportResult = await db.query(`
         SELECT
           r.id,
           r.reference,
@@ -129,9 +135,11 @@ router.get(
         JOIN users u ON r.student_id = u.id
         JOIN categories c ON r.category_id = c.id
         JOIN dormitories d ON r.dormitory_id = d.id
-        WHERE r.id = ?
-          AND r.assigned_technician_id = ?
-      `).get(reportId, technicianId);
+        WHERE r.id = $1
+          AND r.assigned_technician_id = $2
+      `, [reportId, technicianId]);
+
+      const report = reportResult.rows[0];
 
       if (!report) {
         return res.status(404).json({
@@ -141,18 +149,34 @@ router.get(
       }
 
       // Retrieve submitted photos
-      const photos = db.prepare(`
+      const photosResult = await db.query(`
         SELECT
           id,
           original_name,
           file_path,
           uploaded_at
         FROM report_photos
-        WHERE report_id = ?
-      `).all(reportId);
+        WHERE report_id = $1
+      `, [reportId]);
+// Generate temporary URLs for private photographs
+const photos = await Promise.all(
+  photosResult.rows.map(async (photo) => {
+    const { data, error } = await supabase.storage
+      .from("report-photos")
+      .createSignedUrl(photo.file_path, 3600);
 
+    if (error) {
+      throw error;
+    }
+
+    return {
+      ...photo,
+      file_path: data.signedUrl
+    };
+  })
+);
       // Retrieve maintenance history
-      const updates = db.prepare(`
+      const updatesResult = await db.query(`
         SELECT
           ru.id,
           ru.previous_status,
@@ -162,16 +186,16 @@ router.get(
           u.full_name AS author_name
         FROM report_updates ru
         JOIN users u ON ru.author_id = u.id
-        WHERE ru.report_id = ?
-        ORDER BY ru.created_at ASC
-      `).all(reportId);
+        WHERE ru.report_id = $1
+        ORDER BY ru.created_at ASC, ru.id ASC
+      `, [reportId]);
 
       res.json({
         success: true,
         data: {
           ...report,
-          photos,
-          updates
+          photos: photos,
+          updates: updatesResult.rows
         }
       });
 
@@ -186,17 +210,18 @@ router.get(
   }
 );
 
+
 // UPDATE THE STATUS OF AN ASSIGNED MAINTENANCE REPORT
 router.patch(
   "/reports/:id/status",
   authenticateToken,
   requireTechnician,
-  (req, res) => {
+  async (req, res) => {
     const reportId = Number(req.params.id);
     const technicianId = req.user.id;
     const { status, note } = req.body;
 
-    if (!Number.isInteger(reportId) || reportId <= 0) {
+    if (!Number.isSafeInteger(reportId) || reportId <= 0) {
       return res.status(400).json({
         success: false,
         message: "Invalid report ID."
@@ -212,23 +237,40 @@ router.patch(
       });
     }
 
-    if (typeof note !== "string" || !note.trim() || note.trim().length > 1000) {
+    if (
+      typeof note !== "string" ||
+      !note.trim() ||
+      note.trim().length > 1000
+    ) {
       return res.status(400).json({
         success: false,
         message: "A maintenance note is required (maximum 1000 characters)."
       });
     }
 
+    let client;
+
     try {
-      // Verify that this report belongs to the logged-in technician
-      const report = db.prepare(`
+      // Get a dedicated PostgreSQL client
+      client = await db.connect();
+
+      // Begin transaction
+      await client.query("BEGIN");
+
+      // Lock the report while checking and updating it
+      const reportResult = await client.query(`
         SELECT id, status
         FROM reports
-        WHERE id = ?
-          AND assigned_technician_id = ?
-      `).get(reportId, technicianId);
+        WHERE id = $1
+          AND assigned_technician_id = $2
+        FOR UPDATE
+      `, [reportId, technicianId]);
+
+      const report = reportResult.rows[0];
 
       if (!report) {
+        await client.query("ROLLBACK");
+
         return res.status(404).json({
           success: false,
           message: "Assigned report not found."
@@ -243,52 +285,48 @@ router.patch(
           status === "resolved");
 
       if (!allowedTransition) {
+        await client.query("ROLLBACK");
+
         return res.status(400).json({
           success: false,
           message: `Cannot change status from ${report.status} to ${status}.`
         });
       }
 
-      // Update the report and record its history together
-      db.exec("BEGIN TRANSACTION");
+      // Update the report
+      await client.query(`
+        UPDATE reports
+        SET
+          status = $1,
+          updated_at = CURRENT_TIMESTAMP,
+          resolved_at = CASE
+            WHEN $1 = 'resolved' THEN CURRENT_TIMESTAMP
+            ELSE NULL
+          END
+        WHERE id = $2
+          AND assigned_technician_id = $3
+      `, [status, reportId, technicianId]);
 
-      try {
-        db.prepare(`
-          UPDATE reports
-          SET
-            status = ?,
-            updated_at = CURRENT_TIMESTAMP,
-            resolved_at = CASE
-              WHEN ? = 'resolved' THEN CURRENT_TIMESTAMP
-              ELSE NULL
-            END
-          WHERE id = ?
-            AND assigned_technician_id = ?
-        `).run(status, status, reportId, technicianId);
+      // Record the maintenance history
+      await client.query(`
+        INSERT INTO report_updates (
+          report_id,
+          author_id,
+          previous_status,
+          new_status,
+          note
+        )
+        VALUES ($1, $2, $3, $4, $5)
+      `, [
+        reportId,
+        technicianId,
+        report.status,
+        status,
+        note.trim()
+      ]);
 
-        db.prepare(`
-          INSERT INTO report_updates (
-            report_id,
-            author_id,
-            previous_status,
-            new_status,
-            note
-          )
-          VALUES (?, ?, ?, ?, ?)
-        `).run(
-          reportId,
-          technicianId,
-          report.status,
-          status,
-          note.trim()
-        );
-
-        db.exec("COMMIT");
-
-      } catch (transactionError) {
-        db.exec("ROLLBACK");
-        throw transactionError;
-      }
+      // Commit both changes together
+      await client.query("COMMIT");
 
       res.json({
         success: true,
@@ -301,14 +339,28 @@ router.patch(
       });
 
     } catch (error) {
+      if (client) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          console.error("Rollback error:", rollbackError);
+        }
+      }
+
       console.error("Technician status update error:", error);
 
       res.status(500).json({
         success: false,
         message: "Unable to update maintenance report."
       });
+
+    } finally {
+      if (client) {
+        client.release();
+      }
     }
   }
 );
+
 
 module.exports = router;
