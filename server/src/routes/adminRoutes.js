@@ -281,17 +281,16 @@ router.post("/users", authenticateToken, requireAdmin, async (req, res) => {
       });
     }
 
-    // Require student ID for students and technicians
-    if (
-      ["student", "technician"].includes(role) &&
-      !student_id?.trim()
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Student ID is required for student and technician accounts."
-      });
-    }
-
+  // Require student ID for student and technician accounts
+if (
+  ["student", "technician"].includes(role) &&
+  !student_id?.trim()
+) {
+  return res.status(400).json({
+    success: false,
+    message: "Student ID is required for student and technician accounts."
+  });
+}
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
