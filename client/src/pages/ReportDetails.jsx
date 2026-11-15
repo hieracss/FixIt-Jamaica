@@ -18,7 +18,7 @@ import {
 import { getReportDetails } from "../services/api";
 import "./ReportDetails.css";
 
-const API_SERVER = "http://localhost:5000";
+const API_SERVER = import.meta.env.VITE_API_URL.replace(/\/api$/, "");
 
 const statusSteps = [
   { value: "pending", label: "Submitted" },

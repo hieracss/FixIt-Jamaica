@@ -132,7 +132,7 @@ export async function getReportDetails(reportId, token) {
 }
 export async function getAdminReports(token) {
   const response = await fetch(
-    "http://localhost:5000/api/admin/reports",
+    `${API_URL}/admin/reports`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -154,7 +154,7 @@ export async function getAdminReports(token) {
 
 export async function getAdminReportDetails(reportId, token) {
   const response = await fetch(
-    `http://localhost:5000/api/admin/reports/${reportId}`,
+    `${API_URL}/admin/reports/${reportId}`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
