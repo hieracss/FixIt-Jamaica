@@ -1,0 +1,148 @@
+
+.technician-job-filters {
+  display: flex;
+  gap: 12px;
+  margin: 24px 0;
+  flex-wrap: wrap;
+}
+
+.technician-job-filters select {
+  min-width: 180px;
+  padding: 11px 14px;
+  border: 1px solid #dce3ed;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #183153;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+}
+
+.technician-job-filters select:focus {
+  border-color: #3268b5;
+  box-shadow: 0 0 0 3px rgba(50, 104, 181, 0.12);
+}
+
+.technician-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.technician-job-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 22px;
+  background: #ffffff;
+  border: 1px solid #e3e9f1;
+  border-radius: 12px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.technician-job-card:hover {
+  border-color: #c5d5ea;
+  box-shadow: 0 4px 14px rgba(20, 48, 82, 0.06);
+}
+
+.technician-job-main {
+  min-width: 0;
+}
+
+.technician-job-reference {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: #3268b5;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.technician-job-main h3 {
+  margin: 0 0 9px;
+  color: #183153;
+  font-size: 17px;
+}
+
+.technician-job-main p {
+  margin: 0 0 8px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.technician-job-student {
+  color: #8491a3;
+  font-size: 12px;
+}
+
+.technician-job-meta {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 9px;
+  flex-shrink: 0;
+}
+
+.technician-job-urgency,
+.technician-job-status {
+  display: inline-block;
+  padding: 6px 11px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.technician-job-urgency.high {
+  color: #c62828;
+  background: #feecec;
+}
+
+.technician-job-urgency.medium {
+  color: #b76a08;
+  background: #fff3df;
+}
+
+.technician-job-urgency.low {
+  color: #26734b;
+  background: #e7f6ed;
+}
+
+.technician-job-status.pending {
+  color: #946200;
+  background: #fff4d6;
+}
+
+.technician-job-status.under_review {
+  color: #315eaa;
+  background: #eaf1ff;
+}
+
+.technician-job-status.in_progress {
+  color: #a45b00;
+  background: #fff0dc;
+}
+
+.technician-job-status.resolved {
+  color: #187345;
+  background: #e4f5eb;
+}
+
+@media (max-width: 650px) {
+  .technician-job-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .technician-job-meta {
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .technician-job-filters select {
+    width: 100%;
+  }
+}

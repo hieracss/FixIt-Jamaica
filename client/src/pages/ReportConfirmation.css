@@ -1,0 +1,139 @@
+
+.confirmation-page {
+  min-height: 100vh;
+  background: #f5f7fb;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 25px;
+  font-family: Inter, Arial, sans-serif;
+}
+
+.confirmation-card {
+  background: white;
+  width: 100%;
+  max-width: 540px;
+  padding: 45px;
+  border: 1px solid #e6ebf2;
+  border-radius: 14px;
+  text-align: center;
+}
+
+.confirmation-icon {
+  color: #16a36a;
+  margin-bottom: 20px;
+}
+
+.confirmation-label {
+  color: #16a36a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+}
+
+.confirmation-card h1 {
+  font-size: 25px;
+  color: #172b45;
+  margin: 13px 0;
+}
+
+.confirmation-card > p {
+  color: #718096;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.reference-box {
+  background: #f5f8ff;
+  border: 1px solid #dce7fa;
+  border-radius: 9px;
+  padding: 20px;
+  margin: 28px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.reference-box span {
+  font-size: 10px;
+  color: #718096;
+  letter-spacing: 1px;
+}
+
+.reference-box strong {
+  color: #245cc8;
+  font-size: 28px;
+  letter-spacing: 1px;
+}
+
+.reference-box button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: none;
+  color: #2864e8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.confirmation-details {
+  display: flex;
+  justify-content: space-around;
+  border-top: 1px solid #e6ebf2;
+  border-bottom: 1px solid #e6ebf2;
+  padding: 20px 0;
+  margin-bottom: 25px;
+  gap: 15px;
+}
+
+.confirmation-details div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+
+.confirmation-details span {
+  color: #718096;
+  font-size: 11px;
+}
+
+.confirmation-details strong {
+  color: #172b45;
+  font-size: 13px;
+}
+
+.confirmation-primary,
+.confirmation-secondary {
+  width: 100%;
+  padding: 13px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.confirmation-primary {
+  background: #2864e8;
+  color: white;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+
+.confirmation-secondary {
+  margin-top: 10px;
+  background: white;
+  color: #526176;
+  border: 1px solid #dce3ed;
+}
+
+@media (max-width: 500px) {
+  .confirmation-card {
+    padding: 25px 18px;
+  }
+}

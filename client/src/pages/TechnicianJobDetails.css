@@ -1,0 +1,286 @@
+
+.technician-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 22px;
+  color: #3268b5;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.technician-back-link:hover {
+  color: #183153;
+}
+
+.technician-details-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.technician-details-card {
+  padding: 26px;
+  background: #ffffff;
+  border: 1px solid #e3e9f1;
+  border-radius: 12px;
+}
+
+.technician-details-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.technician-details-heading h2 {
+  margin: 4px 0 12px;
+  color: #183153;
+  font-size: 22px;
+}
+
+.technician-details-badges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.technician-details-category {
+  padding: 6px 11px;
+  border-radius: 20px;
+  background: #edf2f8;
+  color: #53657d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.technician-details-divider {
+  height: 1px;
+  margin: 22px 0;
+  background: #e8edf3;
+}
+
+.technician-details-card > h3 {
+  margin: 0 0 10px;
+  color: #183153;
+  font-size: 15px;
+}
+
+.technician-details-description {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.technician-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid #e8edf3;
+}
+
+.technician-details-grid > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  color: #3268b5;
+}
+
+.technician-details-grid > div > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.technician-details-grid span {
+  color: #8491a3;
+  font-size: 12px;
+}
+
+.technician-details-grid strong {
+  color: #263b55;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.technician-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.technician-photo-grid a {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  color: #53657d;
+  font-size: 12px;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.technician-photo-grid img {
+  width: 100%;
+  height: 170px;
+  object-fit: cover;
+  border-radius: 9px;
+  border: 1px solid #e3e9f1;
+}
+
+.technician-photo-grid a:hover img {
+  border-color: #3268b5;
+}
+
+.technician-no-photos {
+  margin: 18px 0 0;
+  color: #8491a3;
+  font-size: 13px;
+}
+
+.technician-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 24px;
+}
+
+.technician-history-item {
+  display: flex;
+  gap: 14px;
+}
+
+.technician-history-marker {
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #3268b5;
+  box-shadow: 0 0 0 4px #eaf1ff;
+}
+
+.technician-history-item strong {
+  color: #183153;
+  font-size: 14px;
+  text-transform: capitalize;
+}
+
+.technician-history-item p {
+  margin: 6px 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.technician-history-item span {
+  color: #94a0af;
+  font-size: 11px;
+}
+
+@media (max-width: 650px) {
+  .technician-details-card {
+    padding: 19px;
+  }
+
+  .technician-details-heading {
+    flex-direction: column;
+  }
+
+  .technician-details-heading h2 {
+    font-size: 19px;
+  }
+
+  .technician-details-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}
+
+.technician-update-form {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-top: 22px;
+}
+
+.technician-update-form label {
+  color: #263b55;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.technician-update-form select,
+.technician-update-form textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #dce3ed;
+  border-radius: 8px;
+  background: #fff;
+  color: #263b55;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.technician-update-form select:focus,
+.technician-update-form textarea:focus {
+  border-color: #3268b5;
+  box-shadow: 0 0 0 3px rgba(50, 104, 181, 0.12);
+}
+
+.technician-update-form textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.technician-note-count {
+  color: #8491a3;
+  font-size: 11px;
+  text-align: right;
+}
+
+.technician-update-button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 22px;
+  border: none;
+  border-radius: 8px;
+  background: #245da8;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.technician-update-button:hover {
+  background: #194984;
+}
+
+.technician-update-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.technician-success {
+  padding: 12px;
+  border-radius: 8px;
+  background: #e6f6ed;
+  color: #187345;
+  font-size: 13px;
+}
+
+.technician-completed-message {
+  margin-top: 20px;
+  color: #187345;
+  font-size: 14px;
+}
