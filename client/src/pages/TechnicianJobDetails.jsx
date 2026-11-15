@@ -79,12 +79,15 @@ async function handleStatusUpdate(event) {
 
     const token = localStorage.getItem("fixit_token");
 
-    await updateTechnicianJobStatus(
-      id,
-      selectedStatus,
-      maintenanceNote,
-      token
-    );
+   const nextStatus =
+  report.status === "in_progress" ? "resolved" : "in_progress";
+
+await updateTechnicianJobStatus(
+  id,
+  nextStatus,
+  maintenanceNote,
+  token
+);
 
     const updatedReport = await getTechnicianJobDetails(id, token);
 
